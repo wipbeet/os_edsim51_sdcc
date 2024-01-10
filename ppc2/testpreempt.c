@@ -2,7 +2,7 @@
  * file: testcoop.c 
  */
 #include <8051.h>
-#include "cooperative.h"
+#include "preemptive.h"
 
 /* 
  * @@@ [2pt] 
@@ -37,11 +37,15 @@ void Producer(void) {
                 * and then write the new data into the buffer
                 */
                 if(buff_avail){
-                        shared_buff = next_buff;
-                        next_buff = (next_buff == 'Z') ? 'A' : next_buff + 1;
-                        buff_avail = 0;
+                        // EA = 0;
+                        __critical{
+                                shared_buff = next_buff;
+                                next_buff = (next_buff == 'Z') ? 'A' : next_buff + 1;
+                                buff_avail = 0;
+                        }
+                        // EA = 1;
                 }
-                ThreadYield();
+                // ThreadYield();
         }       
 }
 
@@ -52,7 +56,7 @@ void Producer(void) {
  */
 void Consumer(void) {
         /* @@@ [2 pt] initialize Tx for polling */
-        TMOD = 0x20;
+        TMOD |= 0x20;
         TH1 = (char)-6;
         SCON = 0x50;
         TR1 = 1;
@@ -65,13 +69,17 @@ void Consumer(void) {
                 * then clear the flag
                 */
                 if(buff_avail == 0){
-                        while(TI == 0){};
-                        SBUF = shared_buff;
-                        TI = 0;
-                        buff_avail = 1;
-                        ThreadYield();
+                        // EA = 0;
+                        __critical{
+                                while(TI == 0){};
+                                SBUF = shared_buff;
+                                TI = 0;
+                                buff_avail = 1;
+                        }
+                        // EA = 1;
+                        // ThreadYield();
                 }
-                else ThreadYield();
+                // else ThreadYield();
         }
 }
 
@@ -87,6 +95,7 @@ void main(void) {
            * Because both are infinite loops, there is no loop
            * in this function and no return.
            */
+        
         shared_buff = 'A';
         buff_avail = 0;
         ThreadCreate(Producer);
@@ -103,3 +112,10 @@ void _sdcc_gsinit_startup(void) {
 
 void _mcs51_genRAMCLEAR(void) {}
 void _mcs51_genXINIT(void) {}
+void _mcs51_genXRAMCLEAR(void) {}
+
+void timer0_ISR(void) __interrupt(1) {
+        __asm
+                ljmp _myTimer0Handler
+        __endasm;
+}
