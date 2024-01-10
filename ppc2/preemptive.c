@@ -107,6 +107,11 @@ void Bootstrap(void) {
        *     so that it starts running main().
        */
       bitmap = 0x0;
+      TMOD = 0;  // timer 0 mode 0, meaning set timer 0 and timer 1 to 0
+      IE = 0x82;  // enable timer 0 interrupt; keep consumer polling
+                  // EA  -  ET2  ES  ET1  EX1  ET0  EX0
+                  // meaning = set all interrupt and set timer interrupt
+      TR0 = 1; // set bit TR0 to start running timer 0, meaning start timer 0
       cur_thr = ThreadCreate(main);
       RESTORESTATE;
 }
@@ -118,11 +123,13 @@ void Bootstrap(void) {
  * return no argument.
  */
 ThreadID ThreadCreate(FunctionPtr fp) {
+   // __critical{
         /*
          * @@@ [2 pts] 
          * check to see we have not reached the max #threads.
          * if so, return -1, which is not a valid thread ID.
          */
+        EA = 0;
         if (bitmap == (1 << MAXTHREADS) - 1) return -1;
         /*
          * @@@ [5 pts]
@@ -209,8 +216,9 @@ ThreadID ThreadCreate(FunctionPtr fp) {
          __endasm; 
 
          SP = tmp; //h
-
+         EA = 1;
          return new_thr_id; //i
+   // }
 
 }
 
@@ -224,6 +232,7 @@ ThreadID ThreadCreate(FunctionPtr fp) {
  */
 
 void ThreadYield(void) {
+   __critical{
        SAVESTATE;
        do {
                 /*
@@ -250,6 +259,7 @@ void ThreadYield(void) {
 
         } while (1);
         RESTORESTATE;
+   }
 }
 
 
@@ -259,6 +269,7 @@ void ThreadYield(void) {
  * to another thread.
  */
 void ThreadExit(void) {
+   __critical{
         /*
          * clear the bit for the current thread from the
          * bit mask, decrement thread count (if any),
@@ -268,4 +279,40 @@ void ThreadExit(void) {
         bitmap &= ~(1 << cur_thr);
         ThreadYield();
         RESTORESTATE;
+   }
+}
+
+void myTimer0Handler(){
+   __critical{
+      SAVESTATE;
+      do {
+         /*
+         * @@@ [8 pts] do round-robin policy for now.
+         * find the next thread that can run and 
+         * set the current thread ID to it,
+         * so that it can be restored (by the last line of 
+         * this function).
+         * there should be at least one thread, so this loop
+         * will always terminate.
+         */
+         cur_thr = (cur_thr + 1) % MAXTHREADS;
+         __asm
+            push 6
+            push 7
+         __endasm;
+         next_char = bitmap & (1 << cur_thr);
+         __asm
+            pop 7
+            pop 6
+         __endasm;
+         if (next_char)
+            break;
+      } while (1);
+      RESTORESTATE;
+   }
+   //RETI assembly instruction
+   __asm
+      RETI
+   __endasm;
+
 }
