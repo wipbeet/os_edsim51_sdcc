@@ -13,9 +13,11 @@
  *        __data __at (0x30) type var; 
  * to declare a variable var of the type
  */ 
-__data __at (0x45) char shared_buff;
-__data __at (0x46) char next_prod;
-__data __at (0x47) char buff_avail;
+__data __at (0x4A) ThreadID cur_thr_id;
+__data __at (0x4B) char next_buff;
+__data __at (0x4C) char shared_buff;
+__data __at (0x4D) int buff_avail;
+
 
 /* [8 pts] for this function
  * the producer in this test program generates one characters at a
@@ -28,18 +30,19 @@ void Producer(void) {
          * initialize producer data structure, and then enter
          * an infinite loop (does not return)
          */
-        next_prod = 'A';
+        next_buff = 'B';
         while (1) {
                 /* @@@ [6 pt]
-                 * wait for the buffer to be available, 
-                 * and then write the new data into the buffer */
-                if (!buff_avail) {
-                        shared_buff = next_prod;
-                        next_prod = (next_prod == 'Z') ? 'A' : next_prod + 1;
-                        buff_avail = 1;
+                * wait for the buffer to be available, 
+                * and then write the new data into the buffer
+                */
+                if(buff_avail){
+                        shared_buff = next_buff;
+                        next_buff = (next_buff == 'Z') ? 'A' : next_buff + 1;
+                        buff_avail = 0;
                 }
                 ThreadYield();
-        }
+        }       
 }
 
 /* [10 pts for this function]
@@ -54,19 +57,21 @@ void Consumer(void) {
         SCON = 0x50;
         TR1 = 1;
         TI = 1;
+
         while (1) {
                 /* @@@ [2 pt] wait for new data from producer
-                 * @@@ [6 pt] write data to serial port Tx, 
-                 * poll for Tx to finish writing (TI),
-                 * then clear the flag
-                 */
-                if (buff_avail) {
-                        while (!TI);
+                * @@@ [6 pt] write data to serial port Tx, 
+                * poll for Tx to finish writing (TI),
+                * then clear the flag
+                */
+                if(buff_avail == 0){
+                        while(TI == 0){};
                         SBUF = shared_buff;
                         TI = 0;
-                        buff_avail = 0;
+                        buff_avail = 1;
+                        ThreadYield();
                 }
-                ThreadYield();
+                else ThreadYield();
         }
 }
 
@@ -76,15 +81,18 @@ void Consumer(void) {
  * one thread can act as producer and another as consumer.
  */
 void main(void) {
-        /* 
-        * @@@ [1 pt] initialize globals 
-        * @@@ [4 pt] set up Producer and Consumer.
-        * Because both are infinite loops, there is no loop
-        * in this function and no return.
-        */
+          /* 
+           * @@@ [1 pt] initialize globals 
+           * @@@ [4 pt] set up Producer and Consumer.
+           * Because both are infinite loops, there is no loop
+           * in this function and no return.
+           */
+        shared_buff = 'A';
         buff_avail = 0;
         ThreadCreate(Producer);
-        Consumer();
+        // cur_thr_id = ThreadCreate(Producer);
+        // __asm
+        Consumer();         
 }
 
 void _sdcc_gsinit_startup(void) {
@@ -95,4 +103,3 @@ void _sdcc_gsinit_startup(void) {
 
 void _mcs51_genRAMCLEAR(void) {}
 void _mcs51_genXINIT(void) {}
-void _mcs51_genXRAMCLEAR(void) {}
