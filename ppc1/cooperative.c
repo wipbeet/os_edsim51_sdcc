@@ -1,11 +1,7 @@
 #include <8051.h>
 
 #include "cooperative.h"
-/*
-savedSP[currentThread] r0, r1 to hold the address or offset.  
 
->> << ar7, ar6 (IDATA) => r7, r6 for bank-0
-*/
 /*
  * @@@ [2 pts] declare the static globals here using 
  *        __data __at (address) type name; syntax
@@ -16,16 +12,13 @@ savedSP[currentThread] r0, r1 to hold the address or offset.
  *   maybe also a count, but strictly speaking not necessary
  * - plus any temporaries that you need.
  */
-
-__data __at (0x30) char savedSP[MAXTHREADS];
+__data __at (0x30) char ssp[MAXTHREADS];
 __data __at (0x34) int bitmap;
-__data __at (0x35) ThreadID currentThread;
-
-__data __at (0x20) ThreadID createdThread;
-__data __at (0x21) char startStack;
-__data __at (0x22) char oldSP;
-__data __at (0x23) int tmp;
-
+__data __at(0x35) ThreadID cur_thr;
+__data __at(0x49) ThreadID new_thr_id;
+__data __at (0x51) char starting_stack;
+__data __at (0x22) char tmp;
+__data __at (0x23) int next_char;
 
 /*
  * @@@ [8 pts]
@@ -37,26 +30,25 @@ __data __at (0x23) int tmp;
  *     while 2) can be written in either assembly or C
  */
 #define SAVESTATE \
-   { __asm \
-      push ACC \
-      push B \
-      push DPL \
-      push DPH \
-      push PSW \
-   __endasm; \
-   } \
-   /* savedSP[currentThread] = SP; */ \
-   { __asm \
-      mov a, r0 \
-      push a \
-      mov a, _currentThread \
-      add a, #_savedSP \
-      mov r0, a \
-      mov @r0, _SP \
-      pop a \
-      mov r0, a \
-   __endasm; \
-   }
+        { __asm \
+            push ACC \
+            push B \
+            push DPL \
+            push DPH \
+            push PSW \
+         __endasm; \
+        } \
+        { __asm \
+            mov a, r0 \
+            push a \
+            mov a, _cur_thr \
+            add a, #_ssp \
+            mov r0, a \
+            mov @r0, _SP \
+            pop a \
+            mov r0, a \
+         __endasm; \
+        }
 
 /*
  * @@@ [8 pts]
@@ -68,26 +60,25 @@ __data __at (0x23) int tmp;
  * done in either C or assembly.
  */
 #define RESTORESTATE \
-   /* SP = savedSP[currentThread]; */ \
-   { __asm \
-      mov a, r1 \
-      push a \
-      mov a,_currentThread \
-	   add a,#_savedSP \
-	   mov r1,a \
-	   mov _SP,@r1 \
-      pop a \
-      mov r1, a \
-   __endasm; \
-   } \
-   { __asm \
-      pop PSW \
-      pop DPH \
-      pop DPL \
-      pop B \
-      pop ACC \
-      __endasm; \
-   }
+         { __asm \
+            mov a, r1 \
+            push a \
+            mov a,_cur_thr \
+            add a,#_ssp \
+            mov r1,a \
+            mov _SP,@r1 \
+            pop a \
+            mov r1, a \
+         __endasm; \
+         } \
+         { __asm \
+            pop PSW \
+            pop DPH \
+            pop DPL \
+            pop B \
+            pop ACC \
+            __endasm; \
+         }
 
 
  /* 
@@ -110,17 +101,13 @@ void Bootstrap(void) {
        * optional: move the stack pointer to some known location
        * only during bootstrapping. by default, SP is 0x07.
        *
-       */
-      bitmap = 0x0;
-       
-       /*
        * @@@ [2 pts]
        *     create a thread for main; be sure current thread is
        *     set to this thread ID, and restore its context,
        *     so that it starts running main().
        */
-      currentThread = ThreadCreate(main);
-         // while(1);
+      bitmap = 0x0;
+      cur_thr = ThreadCreate(main);
       RESTORESTATE;
 }
 
@@ -136,45 +123,32 @@ ThreadID ThreadCreate(FunctionPtr fp) {
          * check to see we have not reached the max #threads.
          * if so, return -1, which is not a valid thread ID.
          */
-         if (bitmap == (1 << MAXTHREADS) - 1) return -1;
+        if (bitmap == (1 << MAXTHREADS) - 1) return -1;
         /*
          * @@@ [5 pts]
          *     otherwise, find a thread ID that is not in use,
          *     and grab it. (can check the bit mask for threads),
-         *
          */
-         for (createdThread = 0; createdThread < MAXTHREADS; createdThread++) {
+        for (new_thr_id = 0; new_thr_id < MAXTHREADS; new_thr_id++) {
             __asm
                push 6
                push 7
             __endasm;
-            tmp = bitmap & (1 << createdThread);
+            next_char = bitmap & (1 << new_thr_id);
             __asm
                pop 7
                pop 6
             __endasm;
-            if (tmp) continue;
+            if (next_char) continue;
             break;
-         }
-         /*
-         * @@@ [18 pts] below
+        }
+         /* @@@ [18 pts] below
          * a. update the bit mask 
              (and increment thread count, if you use a thread count, 
               but it is optional)
-         */
-         bitmap |= (1 << createdThread);
-         /*
-           b. calculate the starting stack location for new thread 
-           
-         */
-         startStack = ((createdThread+3) << 4) | 0x0F;
-         /*
+           b. calculate the starting stack location for new thread
            c. save the current SP in a temporary
               set SP to the starting location for the new thread
-         */
-         oldSP = SP;
-         SP = startStack;
-         /*
            d. push the return address fp (2-byte parameter to
               ThreadCreate) onto stack so it can be the return
               address to resume the thread. Note that in SDCC
@@ -202,32 +176,42 @@ ThreadID ThreadCreate(FunctionPtr fp) {
            h. set SP to the saved SP in step c.
            i. finally, return the newly created thread ID.
          */
-         tmp = createdThread << 3;
+         bitmap |= (1 << new_thr_id);//a
+
+         starting_stack = ((new_thr_id+3) << 4) | 0x0F;//b
+
+         tmp = SP; //c
+         SP = starting_stack;
+
+         // next_char = 'A';
+         next_char = new_thr_id << 3;
+         //d & e
          __asm
-                push DPL
+                push DPL 
                 push DPH
                 MOV A, #0x0
+                push A 
                 push A
                 push A
                 push A
-                push A
-                push _tmp
+                push _next_char
         __endasm;
 
-         /* savedSP[createdThread] = SP; */ 
-          __asm 
+        __asm //f
             mov a, r0 
             push a 
-            mov a, _createdThread 
-            add a, #_savedSP 
+            mov a, _new_thr_id 
+            add a, #_ssp
             mov r0, a 
             mov @r0, _SP 
             pop a
             mov r0, a
          __endasm; 
-         
-         SP = oldSP;
-         return createdThread;        
+
+         SP = tmp; //h
+
+         return new_thr_id; //i
+
 }
 
 
@@ -251,20 +235,19 @@ void ThreadYield(void) {
                  * there should be at least one thread, so this loop
                  * will always terminate.
                  */
-               currentThread = (currentThread+1) % MAXTHREADS;
-               __asm
+                cur_thr = (cur_thr + 1) % MAXTHREADS;
+                __asm
                   push 6
                   push 7
                __endasm;
-               tmp = bitmap & (1 << currentThread);
+               next_char = bitmap & (1 << cur_thr);
                __asm
                   pop 7
                   pop 6
                __endasm;
-               if (tmp)
+               if (next_char)
                   break;
-                 
-                 
+
         } while (1);
         RESTORESTATE;
 }
@@ -282,5 +265,7 @@ void ThreadExit(void) {
          * and set current thread to another valid ID.
          * Q: What happens if there are no more valid threads?
          */
+        bitmap &= ~(1 << cur_thr);
+        ThreadYield();
         RESTORESTATE;
 }
