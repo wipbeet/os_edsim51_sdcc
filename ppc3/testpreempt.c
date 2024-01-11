@@ -24,7 +24,7 @@ void Producer(void) {
          * initialize producer data structure, and then enter
          * an infinite loop (does not return)
          */
-        buffer = 'B';
+        buffer = 'A';
         while (1) {
                 /* @@@ [6 pt]
                 * wait for the buffer to be available, 
@@ -35,9 +35,9 @@ void Producer(void) {
                 SemaphoreWait(empty);
                 SemaphoreWait(mutex);
                         __critical{
-                                shared_buff[head] = buffer + 'A';
+                                shared_buff[head] = buffer;
                                 head = (head + 1) %3;
-                                buffer = (buffer + 1 + 'A') % 26;
+                                buffer = (buffer + 1 - 'A') % 26 + 'A';
                         }
                         // EA = 1;
                 // }
