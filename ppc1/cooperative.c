@@ -13,12 +13,12 @@
  * - plus any temporaries that you need.
  */
 __data __at (0x30) char ssp[MAXTHREADS];
-__data __at (0x34) int bitmap;
 __data __at(0x35) ThreadID cur_thr;
-__data __at(0x49) ThreadID new_thr_id;
+__data __at (0x34) int bitmap;
 __data __at (0x51) char starting_stack;
 __data __at (0x22) char tmp;
 __data __at (0x23) int next_char;
+__data __at(0x49) ThreadID new_thr_id;
 
 /*
  * @@@ [8 pts]
